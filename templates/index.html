@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Intelli-Krishi Demo</title>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
+        body {
+            font-family: sans-serif;
+            max-width: 800px;
+            margin: auto;
+            padding: 20px;
+        }
+        #result {
+            white-space: pre-wrap;
+            background: #f4f4f4;
+            padding: 1rem;
+            border-radius: 5px;
+            margin-top: 20px;
+        }
+        textarea {
+            width: 100%;
+            padding: 10px;
+            margin-top: 10px;
+            border-radius: 5px;
+            border: 1px solid #ccc;
+            resize: vertical;
+        }
+        h2, h3 {
+            color: #2c5e2e;
+        }
+    </style>
+</head>
+<body>
+    <h1>🌿 Intelli-Krishi Demo</h1>
+    <p>Upload a leaf image and optionally ask a question.</p>
+
+    <input type="file" id="imageUpload" accept="image/*"><br><br>
+    <label><strong>Your Question (Optional):</strong></label><br>
+    <textarea id="userPrompt" rows="4" placeholder="e.g., Can I use neem oil for this?"></textarea>
+
+    <h3 id="status"></h3>
+    <div id="result">Waiting for input...</div>
+
+    <script>
+        document.getElementById('imageUpload').addEventListener('change', async function () {
+            const file = this.files[0];
+            const question = document.getElementById('userPrompt').value.trim();
+            if (!file) return;
+
+            const status = document.getElementById('status');
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = "";
+            status.textContent = '⏳ Analyzing...';
+
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('prompt', question);
+
+            const response = await fetch('/stream', {
+                method: 'POST',
+                body: formData
+            });
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder("utf-8");
+            let content = "";
+            let crop = "", disease = "", confidence = "";
+            let metaShown = false;
+
+            while (true) {
+                const { value, done } = await reader.read();
+                if (done) break;
+
+                const text = decoder.decode(value, { stream: true });
+
+                text.split("\n\n").forEach((chunk) => {
+                    if (chunk.startsWith("event: meta")) {
+                        const metaLine = chunk.split("data: ")[1];
+                        [crop, disease, confidence] = metaLine.split("|");
+                        resultDiv.innerHTML = `
+                            <h2>🪴 Crop: ${crop}</h2>
+                            <h2>🦠 Disease: ${disease}</h2>
+                            <p><strong>Confidence:</strong> ${confidence}</p>
+                            <h3>🧪 AI Solution:</h3>
+                            <div id="solution-box" style="white-space: pre-wrap; font-family: monospace;"></div>
+                        `;
+                        metaShown = true;
+                    } else if (chunk.startsWith("data:")) {
+                        const data = chunk.replace("data: ", "");
+                        content += data;
+                        if (metaShown) {
+                            document.getElementById("solution-box").innerHTML = marked.parse(content);
+                        }
+                    }
+                });
+            }
+
+            status.textContent = '✅ Completed';
+        });
+    </script>
+</body>
+</html>
